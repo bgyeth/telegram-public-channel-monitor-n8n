@@ -1,0 +1,373 @@
+{
+  "name": "Public Telegram Channel Monitor — Apify + Persistent State",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "1f04b567-4763-4ef2-a4dd-d517dfe3f910",
+      "name": "Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/*\n * Edit only the CONFIG object when adapting this template.\n *\n * Important:\n * - The Actor accepts exactly one public channel username per run.\n * - Use usernames only: no @ prefix, t.me URL, invite link, or private channel.\n * - An empty keywords array alerts on every unseen post returned in the polling window.\n * - firstRunMode \"baseline\" suppresses the initial result window.\n */\nconst CONFIG = {\n  channels: [\n    'telegram',\n    'durov',\n  ],\n  actorId: 'txAD7J0iGSmiy7Kgp',\n  actorBuild: '0.0.4',\n  limit: 5,\n  actorMemoryMb: 128,\n  actorTimeoutSeconds: 120,\n  firstRunMode: 'baseline', // \"baseline\" or deliberate opt-in \"alert\"\n  keywordMode: 'any', // \"any\", \"all\", or \"off\"\n  keywords: [],\n  caseSensitive: false,\n  alertChatId: 'REPLACE_WITH_TELEGRAM_CHAT_ID',\n  maxAlertTextChars: 3000,\n};\n\nconst usernamePattern = /^[A-Za-z][A-Za-z0-9_]{4,31}$/;\nconst normalizedChannels = [];\nconst duplicateGuard = new Set();\n\nif (!Array.isArray(CONFIG.channels)) {\n  throw new Error('CONFIG.channels must be an array of public channel usernames.');\n}\n\nfor (const rawChannel of CONFIG.channels) {\n  const channel = String(rawChannel ?? '').trim();\n  if (!usernamePattern.test(channel)) {\n    throw new Error(\n      `Invalid public Telegram channel username \"${channel}\". ` +\n      'Use the username only, without @ or a URL.',\n    );\n  }\n\n  const stateKey = channel.toLowerCase();\n  if (duplicateGuard.has(stateKey)) continue;\n  duplicateGuard.add(stateKey);\n  normalizedChannels.push(channel);\n}\n\nif (normalizedChannels.length === 0) {\n  throw new Error('CONFIG.channels must contain at least one valid public channel username.');\n}\n\nif (!Number.isInteger(CONFIG.limit) || CONFIG.limit < 1 || CONFIG.limit > 500) {\n  throw new Error('CONFIG.limit must be an integer from 1 to 500.');\n}\n\nif (\n  !Number.isInteger(CONFIG.actorMemoryMb) ||\n  CONFIG.actorMemoryMb < 128 ||\n  CONFIG.actorMemoryMb > 512\n) {\n  throw new Error('CONFIG.actorMemoryMb must be an integer from 128 to 512.');\n}\n\nif (\n  !Number.isInteger(CONFIG.actorTimeoutSeconds) ||\n  CONFIG.actorTimeoutSeconds < 1 ||\n  CONFIG.actorTimeoutSeconds > 3600\n) {\n  throw new Error('CONFIG.actorTimeoutSeconds must be an integer from 1 to 3600.');\n}\n\nif (!['baseline', 'alert'].includes(CONFIG.firstRunMode)) {\n  throw new Error('CONFIG.firstRunMode must be \"baseline\" or \"alert\".');\n}\n\nif (!['any', 'all', 'off'].includes(CONFIG.keywordMode)) {\n  throw new Error('CONFIG.keywordMode must be \"any\", \"all\", or \"off\".');\n}\n\nif (!Array.isArray(CONFIG.keywords) || !CONFIG.keywords.every(\n  (keyword) => typeof keyword === 'string',\n)) {\n  throw new Error('CONFIG.keywords must be an array of strings.');\n}\n\nif (typeof CONFIG.caseSensitive !== 'boolean') {\n  throw new Error('CONFIG.caseSensitive must be true or false.');\n}\n\nconst alertChatId = String(CONFIG.alertChatId ?? '').trim();\nif (!alertChatId || alertChatId === 'REPLACE_WITH_TELEGRAM_CHAT_ID') {\n  throw new Error(\n    'Replace CONFIG.alertChatId with the Telegram destination before activation.',\n  );\n}\n\nif (\n  !Number.isInteger(CONFIG.maxAlertTextChars) ||\n  CONFIG.maxAlertTextChars < 200 ||\n  CONFIG.maxAlertTextChars > 3200\n) {\n  throw new Error('CONFIG.maxAlertTextChars must be an integer from 200 to 3200.');\n}\n\nconst keywords = [...new Set(\n  CONFIG.keywords\n    .map((keyword) => String(keyword).trim())\n    .filter(Boolean),\n)];\n\nreturn normalizedChannels.map((channel) => ({\n  json: {\n    ...CONFIG,\n    channel,\n    keywords: [...keywords],\n    alertChatId,\n  },\n}));\n"
+      },
+      "id": "5a6b931e-23a5-4398-b402-66cfcc7e7419",
+      "name": "Configuration & Channels",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -840,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/txAD7J0iGSmiy7Kgp/run-sync-get-dataset-items",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "build",
+              "value": "={{ $json.actorBuild }}"
+            },
+            {
+              "name": "memory",
+              "value": "={{ $json.actorMemoryMb }}"
+            },
+            {
+              "name": "timeout",
+              "value": "={{ $json.actorTimeoutSeconds }}"
+            },
+            {
+              "name": "format",
+              "value": "json"
+            },
+            {
+              "name": "clean",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ channel: $json.channel, limit: $json.limit }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          },
+          "timeout": 300000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "317de035-39c6-4d7a-8180-27811c990b9c",
+      "name": "Run Actor Once Per Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -580,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "/*\n * The HTTP Request node returns one full-response envelope per input channel.\n * This node reattaches the originating channel configuration using n8n's\n * paired-item link. Keeping the envelope is essential because a JSON [] body\n * would otherwise disappear as zero output items.\n */\nconst configurations = $('Configuration & Channels').all();\n\nreturn $input.all().map((item, index) => {\n  const pair = Array.isArray(item.pairedItem)\n    ? item.pairedItem[0]\n    : item.pairedItem;\n  const sourceIndex = Number.isInteger(pair?.item) ? pair.item : index;\n  const monitor = configurations[sourceIndex]?.json ?? configurations[index]?.json;\n\n  if (!monitor) {\n    throw new Error(`Could not restore configuration for Actor response item ${index}.`);\n  }\n\n  return {\n    json: {\n      ...item.json,\n      _monitor: monitor,\n    },\n    pairedItem: { item: index },\n  };\n});\n"
+      },
+      "id": "b9f4fcf5-fb42-4e6c-a16b-2913b92713cc",
+      "name": "Attach Channel Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/*\n * Persistent monitoring engine.\n *\n * State is stored in n8n global workflow static data. n8n saves it only for\n * successful production executions of an active workflow; manual/editor runs\n * do not persist it. Keep executions serialized and let downstream alert\n * failures continue so the state commit can complete.\n */\n\nconst STATE_SCHEMA_VERSION = 1;\nconst now = new Date().toISOString();\nconst state = $getWorkflowStaticData('global');\n\nif (state.schemaVersion === undefined) {\n  state.schemaVersion = STATE_SCHEMA_VERSION;\n  state.channels = {};\n}\n\nif (state.schemaVersion !== STATE_SCHEMA_VERSION) {\n  throw new Error(\n    `Unsupported monitor state schema ${state.schemaVersion}; expected ${STATE_SCHEMA_VERSION}. ` +\n    'Do not reset state casually because that can replay old posts.',\n  );\n}\n\nif (!state.channels || typeof state.channels !== 'object' || Array.isArray(state.channels)) {\n  throw new Error('Monitor state is malformed: channels must be an object.');\n}\n\nfunction normalizeChannel(value) {\n  return String(value ?? '').trim().replace(/^@/, '').toLowerCase();\n}\n\nfunction canonicalizeRanges(value) {\n  if (!Array.isArray(value)) return [];\n\n  const valid = value\n    .filter((range) => (\n      Array.isArray(range) &&\n      range.length === 2 &&\n      Number.isSafeInteger(range[0]) &&\n      Number.isSafeInteger(range[1]) &&\n      range[0] > 0 &&\n      range[1] >= range[0]\n    ))\n    .map((range) => [range[0], range[1]])\n    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);\n\n  const merged = [];\n  for (const range of valid) {\n    const previous = merged[merged.length - 1];\n    if (!previous || range[0] > previous[1] + 1) {\n      merged.push(range);\n      continue;\n    }\n    previous[1] = Math.max(previous[1], range[1]);\n  }\n  return merged;\n}\n\nfunction isSeen(ranges, id) {\n  let low = 0;\n  let high = ranges.length - 1;\n  while (low <= high) {\n    const middle = Math.floor((low + high) / 2);\n    const [start, end] = ranges[middle];\n    if (id < start) high = middle - 1;\n    else if (id > end) low = middle + 1;\n    else return true;\n  }\n  return false;\n}\n\nfunction mergeIdsIntoRanges(ranges, ids) {\n  return canonicalizeRanges([\n    ...ranges,\n    ...ids.map((id) => [id, id]),\n  ]);\n}\n\nfunction filterMessage(row, monitor) {\n  const text = typeof row.text === 'string' ? row.text : '';\n  const keywords = (Array.isArray(monitor.keywords) ? monitor.keywords : [])\n    .map((keyword) => String(keyword).trim())\n    .filter(Boolean);\n  const mode = monitor.keywordMode ?? 'any';\n\n  if (mode === 'off' || keywords.length === 0) {\n    return { matches: true, matchedKeywords: [] };\n  }\n\n  if (!text) {\n    return { matches: false, matchedKeywords: [] };\n  }\n\n  const haystack = monitor.caseSensitive ? text : text.toLocaleLowerCase();\n  const matchedKeywords = keywords.filter((keyword) => {\n    const needle = monitor.caseSensitive ? keyword : keyword.toLocaleLowerCase();\n    return haystack.includes(needle);\n  });\n\n  return {\n    matches: mode === 'all'\n      ? matchedKeywords.length === keywords.length\n      : matchedKeywords.length > 0,\n    matchedKeywords,\n  };\n}\n\nfunction actorErrorSummary(channel, status, details, monitor) {\n  return {\n    json: {\n      kind: 'status',\n      channel,\n      status,\n      checkedAt: now,\n      details,\n      stateAdvanced: false,\n      resultCount: 0,\n      newCount: 0,\n      alertCount: 0,\n      windowSaturated: false,\n      actorBuild: monitor?.actorBuild ?? null,\n    },\n  };\n}\n\nconst alerts = [];\nconst summaries = [];\n\nfor (const inputItem of $input.all()) {\n  const response = inputItem.json ?? {};\n  const monitor = response._monitor ?? {};\n  const channel = normalizeChannel(monitor.channel);\n\n  if (!channel) {\n    summaries.push(actorErrorSummary(\n      '(unknown)',\n      'PROTOCOL_ERROR',\n      'Missing originating channel configuration.',\n      monitor,\n    ));\n    continue;\n  }\n\n  if (response.error) {\n    summaries.push(actorErrorSummary(\n      channel,\n      'ACTOR_REQUEST_ERROR',\n      typeof response.error === 'string'\n        ? response.error\n        : (response.error.message ?? JSON.stringify(response.error)),\n      monitor,\n    ));\n    continue;\n  }\n\n  const statusCode = Number(response.statusCode);\n  if (!Number.isFinite(statusCode) || statusCode < 200 || statusCode >= 300) {\n    summaries.push(actorErrorSummary(\n      channel,\n      'ACTOR_FAILED',\n      `Apify returned HTTP ${Number.isFinite(statusCode) ? statusCode : 'unknown'}.`,\n      monitor,\n    ));\n    continue;\n  }\n\n  let rows = response.body;\n  if (typeof rows === 'string') {\n    try {\n      rows = JSON.parse(rows);\n    } catch {\n      rows = null;\n    }\n  }\n\n  if (!Array.isArray(rows)) {\n    summaries.push(actorErrorSummary(\n      channel,\n      'PROTOCOL_ERROR',\n      'Expected the synchronous Actor endpoint to return a JSON array.',\n      monitor,\n    ));\n    continue;\n  }\n\n  /*\n   * An empty successful dataset is deliberately not used to initialize state.\n   * If posts appear later, that later non-empty window becomes the safe\n   * baseline instead of being emitted as a burst of \"new\" alerts.\n   */\n  if (rows.length === 0) {\n    summaries.push(actorErrorSummary(\n      channel,\n      'EMPTY_RESULT',\n      'No dataset rows were returned; channel baseline was left unchanged.',\n      monitor,\n    ));\n    continue;\n  }\n\n  const byId = new Map();\n  let invalidRowCount = 0;\n  let duplicateRowCount = 0;\n\n  for (const row of rows) {\n    const id = Number(row?.id);\n    const rowChannel = normalizeChannel(row?.channel);\n    if (!Number.isSafeInteger(id) || id <= 0 || rowChannel !== channel) {\n      invalidRowCount += 1;\n      continue;\n    }\n    if (byId.has(id)) {\n      duplicateRowCount += 1;\n      continue;\n    }\n    byId.set(id, {\n      channel,\n      source_url: row.source_url ?? `https://t.me/s/${channel}`,\n      scraped_at: row.scraped_at ?? null,\n      id,\n      url: row.url ?? `https://t.me/${channel}/${id}`,\n      date: row.date ?? null,\n      text: typeof row.text === 'string' ? row.text : null,\n      views: row.views === null || row.views === undefined || row.views === ''\n        ? null\n        : (Number.isFinite(Number(row.views)) ? Number(row.views) : null),\n      forwarded_from: row.forwarded_from ?? null,\n      has_photo: row.has_photo === true,\n      has_video: row.has_video === true,\n      has_link_preview: row.has_link_preview === true,\n    });\n  }\n\n  if (byId.size === 0) {\n    summaries.push(actorErrorSummary(\n      channel,\n      'PROTOCOL_ERROR',\n      `Dataset contained ${rows.length} row(s), but none matched the expected channel/ID contract.`,\n      monitor,\n    ));\n    continue;\n  }\n\n  const uniqueRows = [...byId.values()].sort((a, b) => a.id - b.id);\n  const prior = state.channels[channel];\n  const firstSuccessfulRun = !prior?.initializedAt;\n  const channelState = prior ?? {\n    initializedAt: null,\n    baselineFloorId: null,\n    seenRanges: [],\n    highestObservedId: null,\n    totalProcessed: 0,\n    totalAlertCandidates: 0,\n  };\n\n  const seenRanges = canonicalizeRanges(channelState.seenRanges);\n  const minimumId = uniqueRows[0].id;\n  const maximumId = uniqueRows[uniqueRows.length - 1].id;\n  const baselineFloorId = firstSuccessfulRun\n    ? minimumId\n    : channelState.baselineFloorId;\n\n  const observedUnseenIds = [];\n  let alreadySeenCount = 0;\n  let baselineSuppressedCount = 0;\n  let historicalBackfillCount = 0;\n  let filteredOutCount = 0;\n  let eligibleNewCount = 0;\n  let channelAlertCount = 0;\n\n  for (const row of uniqueRows) {\n    if (isSeen(seenRanges, row.id)) {\n      alreadySeenCount += 1;\n      continue;\n    }\n\n    observedUnseenIds.push(row.id);\n\n    if (!firstSuccessfulRun && baselineFloorId !== null && row.id < baselineFloorId) {\n      historicalBackfillCount += 1;\n      continue;\n    }\n\n    if (firstSuccessfulRun && monitor.firstRunMode !== 'alert') {\n      baselineSuppressedCount += 1;\n      continue;\n    }\n\n    eligibleNewCount += 1;\n    const filter = filterMessage(row, monitor);\n    if (!filter.matches) {\n      filteredOutCount += 1;\n      continue;\n    }\n\n    channelAlertCount += 1;\n    alerts.push({\n      json: {\n        kind: 'alert',\n        channel,\n        id: row.id,\n        date: row.date,\n        text: row.text,\n        views: row.views,\n        url: row.url,\n        source_url: row.source_url,\n        scraped_at: row.scraped_at,\n        forwarded_from: row.forwarded_from,\n        has_photo: row.has_photo,\n        has_video: row.has_video,\n        has_link_preview: row.has_link_preview,\n        matchedKeywords: filter.matchedKeywords,\n        alertChatId: monitor.alertChatId,\n        maxAlertTextChars: monitor.maxAlertTextChars,\n        actorBuild: monitor.actorBuild,\n      },\n    });\n  }\n\n  /*\n   * Mark every valid observed ID before filtering. This gives at-most-once\n   * behavior: changing keywords later will not replay posts already processed.\n   */\n  channelState.seenRanges = mergeIdsIntoRanges(seenRanges, observedUnseenIds);\n  channelState.initializedAt = channelState.initializedAt ?? now;\n  channelState.baselineFloorId = baselineFloorId;\n  channelState.highestObservedId = Math.max(\n    Number(channelState.highestObservedId) || 0,\n    maximumId,\n  );\n  channelState.lastSuccessAt = now;\n  channelState.lastResultCount = uniqueRows.length;\n  channelState.lastNewCount = eligibleNewCount;\n  channelState.lastAlertCount = channelAlertCount;\n  channelState.totalProcessed = (Number(channelState.totalProcessed) || 0) + observedUnseenIds.length;\n  channelState.totalAlertCandidates =\n    (Number(channelState.totalAlertCandidates) || 0) + channelAlertCount;\n  state.channels[channel] = channelState;\n\n  /*\n   * Use the raw response length for saturation detection. A full Actor window\n   * can contain duplicate or invalid rows; deduplication must not hide the\n   * possibility that older posts fell outside that window.\n   */\n  const windowSaturated = rows.length >= Number(monitor.limit);\n  summaries.push({\n    json: {\n      kind: 'status',\n      channel,\n      status: firstSuccessfulRun\n        ? (monitor.firstRunMode === 'alert' ? 'FIRST_RUN_ALERT_MODE' : 'BASELINE_CREATED')\n        : (eligibleNewCount > 0 ? 'NEW_POSTS_PROCESSED' : 'NO_NEW_POSTS'),\n      checkedAt: now,\n      stateAdvanced: true,\n      firstSuccessfulRun,\n      resultCount: uniqueRows.length,\n      rawRowCount: rows.length,\n      invalidRowCount,\n      duplicateRowCount,\n      alreadySeenCount,\n      observedUnseenCount: observedUnseenIds.length,\n      newCount: eligibleNewCount,\n      filteredOutCount,\n      alertCount: channelAlertCount,\n      baselineSuppressedCount,\n      historicalBackfillCount,\n      baselineFloorId,\n      highestObservedId: channelState.highestObservedId,\n      seenRanges: channelState.seenRanges,\n      windowSaturated,\n      warning: windowSaturated\n        ? 'WINDOW_SATURATED: increase limit or run more frequently to avoid missing fast-moving posts.'\n        : null,\n      actorBuild: monitor.actorBuild,\n    },\n  });\n}\n\nalerts.sort((a, b) => (\n  a.json.channel.localeCompare(b.json.channel) ||\n  a.json.id - b.json.id\n));\nsummaries.sort((a, b) => a.json.channel.localeCompare(b.json.channel));\n\nstate.lastCycleAt = now;\nstate.lastCycleSummary = summaries.map((item) => ({\n  channel: item.json.channel,\n  status: item.json.status,\n  resultCount: item.json.resultCount,\n  newCount: item.json.newCount,\n  alertCount: item.json.alertCount,\n}));\n\nreturn [...alerts, ...summaries];\n"
+      },
+      "id": "a04e644e-b1a4-4852-9763-1c173e76db41",
+      "name": "Deduplicate Filter & Persist State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e4deec52-d61f-42bd-b347-50ef7b3f1bf0",
+              "leftValue": "={{ $json.kind }}",
+              "rightValue": "alert",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "28ac21c4-e4a9-4c23-ada2-48558666e133",
+      "name": "Is New Matching Post?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function mediaFallback(item) {\n  const media = [];\n  if (item.has_photo) media.push('photo');\n  if (item.has_video) media.push('video');\n  if (item.has_link_preview) media.push('link preview');\n  return media.length > 0\n    ? `[Media-only post: ${media.join(', ')}]`\n    : '[Post has no text]';\n}\n\nfunction normalizeText(value) {\n  return String(value ?? '')\n    .replace(/[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]/g, '');\n}\n\n/*\n * The Telegram node is configured for HTML parse mode. Escape all dynamic\n * values and truncate only between complete entities so arbitrary post text\n * cannot become markup or make Telegram reject an otherwise valid alert.\n */\nfunction escapeHtmlWithin(value, maximum) {\n  const source = [...normalizeText(value)];\n  const max = Math.max(0, Math.floor(maximum));\n  let output = '';\n\n  for (let index = 0; index < source.length; index += 1) {\n    const character = source[index];\n    const escaped = character === '&'\n      ? '&amp;'\n      : (character === '<' ? '&lt;' : (character === '>' ? '&gt;' : character));\n    const hasMore = index < source.length - 1;\n    const available = Math.max(0, max - (hasMore ? 1 : 0));\n    if (output.length + escaped.length > available) {\n      return `${output.trimEnd()}…`;\n    }\n    output += escaped;\n  }\n\n  return output;\n}\n\nreturn $input.all().map((item, index) => {\n  const alert = item.json;\n  const requestedTextMaximum = Number(alert.maxAlertTextChars);\n  const textMaximum = Number.isFinite(requestedTextMaximum)\n    ? Math.min(3200, Math.max(200, Math.floor(requestedTextMaximum)))\n    : 3000;\n  const body = typeof alert.text === 'string' && alert.text.trim()\n    ? alert.text.trim()\n    : mediaFallback(alert);\n  const views = alert.views === null || alert.views === undefined\n    ? 'Unavailable'\n    : Number(alert.views).toLocaleString('en-US');\n  const date = escapeHtmlWithin(alert.date || 'Unavailable', 200);\n  const channel = escapeHtmlWithin(alert.channel, 64);\n  const messageId = escapeHtmlWithin(alert.id, 32);\n  const keywordLine = Array.isArray(alert.matchedKeywords) && alert.matchedKeywords.length > 0\n    ? `\\nMatched: ${escapeHtmlWithin(alert.matchedKeywords.join(', '), 300)}`\n    : '';\n\n  const header = [\n    '🚨 Telegram channel match',\n    '',\n    `Channel: @${channel}`,\n    `Date: ${date}`,\n    `Views: ${views}`,\n    `Message ID: ${messageId}${keywordLine}`,\n    '',\n  ].join('\\n');\n  const postUrl = escapeHtmlWithin(\n    alert.url || `https://t.me/${normalizeText(alert.channel)}/${normalizeText(alert.id)}`,\n    256,\n  );\n  const footer = [\n    '',\n    'Original post:',\n    postUrl,\n  ].join('\\n');\n  const bodyBudget = Math.max(\n    1,\n    Math.min(textMaximum, 4000 - header.length - footer.length),\n  );\n  const alertText = `${header}${escapeHtmlWithin(body, bodyBudget)}${footer}`;\n\n  return {\n    json: {\n      ...alert,\n      alertText,\n    },\n    pairedItem: { item: index },\n  };\n});\n"
+      },
+      "id": "98489d4d-dac0-4c9c-9d10-6102fb2b5e58",
+      "name": "Format Telegram Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $json.alertChatId }}",
+        "text": "={{ $json.alertText }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "eece419f-b8c8-4dc4-939c-5991d86b3280",
+      "name": "Send Telegram Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        720,
+        180
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const preparedAlerts = $('Format Telegram Alert').all();\n\nreturn $input.all().map((item, index) => {\n  const pair = Array.isArray(item.pairedItem)\n    ? item.pairedItem[0]\n    : item.pairedItem;\n  const sourceIndex = Number.isInteger(pair?.item) ? pair.item : index;\n  const alert = preparedAlerts[sourceIndex]?.json ?? preparedAlerts[index]?.json ?? {};\n  const deliveryOk = item.json?.ok === true && !item.json?.error;\n\n  return {\n    json: {\n      kind: 'delivery_result',\n      channel: alert.channel ?? null,\n      id: alert.id ?? null,\n      url: alert.url ?? null,\n      deliveryOk,\n      telegramMessageId: deliveryOk\n        ? (item.json?.result?.message_id ?? null)\n        : null,\n      deliveryError: deliveryOk\n        ? null\n        : (item.json?.error ?? 'Telegram did not return a confirmed success response.'),\n      attemptedAt: new Date().toISOString(),\n    },\n    pairedItem: { item: index },\n  };\n});\n"
+      },
+      "id": "994a41bc-1d97-48d4-8b73-7cc138170a52",
+      "name": "Record Delivery Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        180
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d4d4c5cd-6dda-4299-8fb9-141d42ac4f61",
+      "name": "Channel Cycle Status",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        460,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Setup required\n1. Open **Configuration & Channels** and replace the channel list and Telegram chat ID.\n2. On **Run Actor Once Per Channel**, select a **Bearer Auth** credential containing only the Apify token.\n3. On **Send Telegram Alert**, select a Telegram Bot credential.\n4. Save and activate the workflow.\n\n**Never put either token in this workflow JSON.**",
+        "height": 300,
+        "width": 420,
+        "color": 5
+      },
+      "id": "172af4f4-f401-428e-961f-3b522d50a910",
+      "name": "Setup Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1080,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Persistent-state safety\n- The first successful non-empty cycle creates a baseline and sends no alerts by default.\n- State is independent per lowercase channel and stores exact compressed message-ID ranges.\n- Manual/editor executions do **not** persist n8n workflow static data.\n- Keep executions serialized; the 15-minute interval must remain longer than worst-case runtime.\n- A result count equal to `limit` emits `WINDOW_SATURATED` in the status output.",
+        "height": 300,
+        "width": 460,
+        "color": 3
+      },
+      "id": "e13a9112-2de2-4466-81d2-cfd0839f5f4f",
+      "name": "State Safety Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -300,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Filtering and optional AI\nThe base workflow uses deterministic case-sensitive or case-insensitive substring matching and needs no AI.\n\nTo add AI later, insert a classifier **after** `Is New Matching Post?` and before formatting. Keep it on a separate, explicitly enabled branch so AI failures or cost never block the base keyword path.",
+        "height": 260,
+        "width": 440,
+        "color": 4
+      },
+      "id": "ec8181fc-7b03-49f7-bfce-9defcc4e231e",
+      "name": "Filtering Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        460,
+        -120
+      ]
+    }
+  ],
+  "connections": {
+    "Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Configuration & Channels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration & Channels": {
+      "main": [
+        [
+          {
+            "node": "Run Actor Once Per Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Actor Once Per Channel": {
+      "main": [
+        [
+          {
+            "node": "Attach Channel Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Channel Metadata": {
+      "main": [
+        [
+          {
+            "node": "Deduplicate Filter & Persist State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicate Filter & Persist State": {
+      "main": [
+        [
+          {
+            "node": "Is New Matching Post?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is New Matching Post?": {
+      "main": [
+        [
+          {
+            "node": "Format Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Channel Cycle Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Telegram Alert": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram Alert": {
+      "main": [
+        [
+          {
+            "node": "Record Delivery Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": []
+}
